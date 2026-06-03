@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infinite Monkey Theorem — A Simulation</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1c2330;
+    --ink: #e6edf3;
+    --muted: #8b949e;
+    --accent: #f0b429;
+    --good: #3fb950;
+    --bad: #f85149;
+    --line: #30363d;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 800px at 80% -10%, #1a2233 0%, var(--bg) 55%);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }
+  header h1 {
+    font-size: clamp(24px, 4vw, 38px);
+    margin: 0 0 4px;
+    letter-spacing: -0.02em;
+  }
+  header h1 .m { filter: saturate(1.2); }
+  header p.sub { color: var(--muted); margin: 0 0 22px; max-width: 70ch; }
+
+  .grid-main { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+  @media (max-width: 860px) { .grid-main { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+  }
+  .panel h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--muted); margin: 0 0 14px; font-weight: 600;
+  }
+
+  label.field { display: block; margin-bottom: 16px; }
+  label.field .lbl { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  label.field .lbl b { color: var(--ink); font-weight: 600; }
+  select, input[type=range] { width: 100%; }
+  select {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 10px; font-size: 14px; font-family: inherit;
+  }
+  input[type=range] { accent-color: var(--accent); cursor: pointer; }
+
+  .modes { display: flex; gap: 8px; margin-bottom: 16px; }
+  .modes button {
+    flex: 1; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 6px; cursor: pointer; font-size: 12.5px; font-weight: 600;
+    transition: all .15s;
+  }
+  .modes button.active { background: var(--accent); color: #1a1100; border-color: var(--accent); }
+  .modes button:hover:not(.active) { border-color: var(--accent); color: var(--ink); }
+
+  .btn-row { display: flex; gap: 8px; }
+  .btn-row button {
+    flex: 1; padding: 11px; border-radius: 9px; border: 1px solid var(--line);
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s;
+  }
+  #startBtn { background: var(--good); color: #03200c; border-color: var(--good); }
+  #startBtn.paused { background: var(--accent); color: #1a1100; border-color: var(--accent); }
+  #resetBtn { background: var(--panel-2); color: var(--ink); }
+  #resetBtn:hover { border-color: var(--bad); color: var(--bad); }
+
+  .hint { font-size: 12px; color: var(--muted); margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+
+  /* Target / best display */
+  .target-box { margin-bottom: 18px; }
+  .target-box .cap { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .glyphs {
+    font-family: var(--mono); font-size: clamp(15px, 2.4vw, 22px);
+    letter-spacing: 1px; word-break: break-word; line-height: 1.7;
+  }
+  .glyphs .ch {
+    display: inline-block; min-width: 0.62em; text-align: center;
+    border-bottom: 2px solid var(--line); margin: 0 1px 4px; transition: color .1s, border-color .2s;
+    color: var(--muted);
+  }
+  .glyphs .ch.space { min-width: 0.4em; }
+  .glyphs .ch.hit { color: var(--good); border-color: var(--good); }
+  .glyphs .ch.locked { color: var(--accent); border-color: var(--accent); }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 8px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .stat .v small { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  .progressbar { height: 10px; background: var(--panel-2); border-radius: 6px; overflow: hidden; margin: 10px 0 4px; border: 1px solid var(--line); }
+  .progressbar > div { height: 100%; width: 0%; background: linear-gradient(90deg, var(--good), var(--accent)); transition: width .2s; }
+
+  /* Monkeys */
+  .monkeys { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 16px; }
+  .monkey {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px; overflow: hidden;
+  }
+  .monkey .head { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; font-size: 12px; color: var(--muted); }
+  .monkey .face { font-size: 18px; }
+  .monkey .typed {
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.5px; white-space: nowrap;
+    overflow: hidden; text-overflow: clip; direction: rtl; text-align: left;
+  }
+  .monkey .typed .c { color: var(--muted); }
+  .monkey .typed .c.hit { color: var(--good); }
+  .monkey .typed .c.locked { color: var(--accent); }
+  .monkey.winner { border-color: var(--good); box-shadow: 0 0 0 1px var(--good); }
+
+  .banner {
+    display: none; margin-top: 18px; padding: 16px 18px; border-radius: 12px;
+    background: linear-gradient(90deg, rgba(63,185,80,.18), rgba(240,180,41,.12));
+    border: 1px solid var(--good); font-size: 15px;
+  }
+  .banner.show { display: block; }
+  .banner b { color: var(--good); }
+
+  .odds { margin-top: 16px; font-size: 13px; color: var(--muted); }
+  .odds .num { color: var(--accent); font-family: var(--mono); font-weight: 600; }
+  .odds .universe { color: var(--bad); }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 12.5px; text-align: center; }
+  footer code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="m">🐒</span> The Infinite Monkey Theorem</h1>
+    <p class="sub">
+      A monkey hitting keys at random for an infinite amount of time will <em>almost surely</em> type
+      any given text — like the complete works of Shakespeare. This simulation lets you watch the idea
+      play out, and shows you exactly why "almost surely" and "before the heat-death of the universe"
+      are two very different promises.
+    </p>
+  </header>
+
+  <div class="grid-main">
+    <!-- CONTROLS -->
+    <aside class="panel">
+      <h2>Controls</h2>
+
+      <label class="field">
+        <span class="lbl"><b>Target passage</b></span>
+        <select id="phraseSel"></select>
+      </label>
+
+      <div>
+        <span class="lbl" style="font-size:13px;color:var(--muted);display:block;margin-bottom:6px;">Strategy</span>
+        <div class="modes">
+          <button data-mode="chance" class="active">Pure&nbsp;chance</button>
+          <button data-mode="weasel">Cumulative</button>
+        </div>
+      </div>
+
+      <label class="field">
+        <span class="lbl">Monkeys <b id="monkeyVal">12</b></span>
+        <input type="range" id="monkeyRange" min="1" max="60" value="12">
+      </label>
+
+      <label class="field">
+        <span class="lbl">Speed <b id="speedVal">medium</b></span>
+        <input type="range" id="speedRange" min="1" max="6" value="3">
+      </label>
+
+      <div class="btn-row">
+        <button id="startBtn">▶ Start</button>
+        <button id="resetBtn">↺ Reset</button>
+      </div>
+
+      <p class="hint" id="modeHint"></p>
+    </aside>
+
+    <!-- STAGE -->
+    <main>
+      <div class="panel">
+        <div class="target-box">
+          <div class="cap">Best attempt so far <span id="bestWho"></span></div>
+          <div class="glyphs" id="bestGlyphs"></div>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="k">Total keystrokes</div><div class="v" id="stKeys">0</div></div>
+          <div class="stat"><div class="k">Elapsed</div><div class="v" id="stTime">0.0<small>s</small></div></div>
+          <div class="stat"><div class="k">Speed</div><div class="v" id="stRate">0<small>/s</small></div></div>
+          <div class="stat"><div class="k">Best match</div><div class="v" id="stBest">0<small>%</small></div></div>
+        </div>
+
+        <div class="progressbar"><div id="progFill"></div></div>
+
+        <div class="banner" id="banner"></div>
+        <div class="odds" id="odds"></div>
+      </div>
+
+      <div class="monkeys" id="monkeys"></div>
+    </main>
+  </div>
+
+  <footer>
+    Pure chance models the real theorem — every key independent. Cumulative selection keeps correct
+    letters (Richard Dawkins's 1986 <em>"weasel"</em> demo) to show how guided search collapses the odds.
+    Built as a single <code>index.html</code> — no dependencies.
+  </footer>
+</div>
+
+<script>
+"use strict";
+(function () {
+  // ---- charset & phrases ----------------------------------------------------
+  const CHARSET = "abcdefghijklmnopqrstuvwxyz ,.'";   // 30 symbols
+  const PHRASES = [
+    "to be or not to be",
+    "all the world's a stage",
+    "what's in a name",
+    "to be, or not to be, that is the question",
+    "now is the winter of our discontent",
+    "the course of true love never did run smooth",
+  ];
+
+  // ---- DOM ------------------------------------------------------------------
+  const $ = (id) => document.getElementById(id);
+  const phraseSel = $("phraseSel");
+  const monkeyRange = $("monkeyRange"), monkeyVal = $("monkeyVal");
+  const speedRange = $("speedRange"), speedVal = $("speedVal");
+  const startBtn = $("startBtn"), resetBtn = $("resetBtn");
+  const monkeysEl = $("monkeys");
+  const bestGlyphs = $("bestGlyphs"), bestWho = $("bestWho");
+  const stKeys = $("stKeys"), stTime = $("stTime"), stRate = $("stRate"), stBest = $("stBest");
+  const progFill = $("progFill"), banner = $("banner"), oddsEl = $("odds"), modeHint = $("modeHint");
+  const modeBtns = Array.from(document.querySelectorAll(".modes button"));
+
+  const SPEED_LABELS = { 1: "crawl", 2: "slow", 3: "medium", 4: "fast", 5: "blazing", 6: "ludicrous" };
+  // keystrokes per monkey per second, by slider step
+  const SPEED_KPS = { 1: 3, 2: 8, 3: 25, 4: 80, 5: 250, 6: 900 };
+  const FACES = ["🐒","🦍","🐵","🙊","🙉","🙈"];
+
+  const HINTS = {
+    chance: "Pure chance: every keystroke is independent. The bar may twitch upward by luck, but it never sticks. This is the honest theorem — and why it would take essentially forever.",
+    weasel: "Cumulative selection: once a letter lands in the right spot it's kept. Each generation builds on the last, so even a long passage converges in seconds. This is NOT the real theorem — it's the contrast.",
+  };
+
+  // ---- state ----------------------------------------------------------------
+  let mode = "chance";
+  let target = PHRASES[0];
+  let monkeys = [];          // {buf:[], locked:[], el, typedEl, best}
+  let running = false;
+  let rafId = null, lastT = 0, startT = 0, accum = 0;
+  let totalKeys = 0;
+  let bestCount = 0, bestStr = "", bestMonkey = -1;
+  let solved = false;
+
+  const rnd = (n) => Math.floor(Math.random() * n);
+  const randChar = () => CHARSET[rnd(CHARSET.length)];
+
+  // ---- build UI -------------------------------------------------------------
+  PHRASES.forEach((p, i) => {
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = '"' + p + '"';
+    phraseSel.appendChild(o);
+  });
+
+  function buildMonkeys() {
+    monkeysEl.innerHTML = "";
+    monkeys = [];
+    const n = +monkeyRange.value;
+    const L = target.length;
+    for (let i = 0; i < n; i++) {
+      const card = document.createElement("div");
+      card.className = "monkey";
+      const face = FACES[i % FACES.length];
+      card.innerHTML = `<div class="head"><span class="face">${face}</span>#${i + 1}</div>
+                        <div class="typed"></div>`;
+      monkeysEl.appendChild(card);
+      monkeys.push({
+        buf: Array.from({ length: L }, randChar),
+        locked: new Array(L).fill(false),
+        el: card,
+        typedEl: card.querySelector(".typed"),
+        best: 0,
+      });
+    }
+  }
+
+  function countMatch(buf) {
+    let c = 0;
+    for (let i = 0; i < target.length; i++) if (buf[i] === target[i]) c++;
+    return c;
+  }
+
+  // One "keystroke" of work for a monkey.
+  function tickMonkey(m) {
+    const L = target.length;
+    if (mode === "chance") {
+      // Re-roll every unlocked position (a fresh independent attempt).
+      for (let i = 0; i < L; i++) m.buf[i] = randChar();
+      return L; // counts as L keystrokes (a full fresh attempt)
+    } else {
+      // weasel: mutate every non-locked position, then lock any that now match.
+      for (let i = 0; i < L; i++) {
+        if (!m.locked[i]) m.buf[i] = randChar();
+      }
+      let keys = 0;
+      for (let i = 0; i < L; i++) {
+        if (!m.locked[i]) { keys++; if (m.buf[i] === target[i]) m.locked[i] = true; }
+      }
+      return keys;
+    }
+  }
+
+  function renderMonkey(m, idx) {
+    const L = target.length;
+    let html = "";
+    // RTL container shows the tail of the typing; render normally.
+    for (let i = 0; i < L; i++) {
+      const ch = m.buf[i];
+      const disp = ch === " " ? "·" : ch;
+      let cls = "c";
+      if (m.buf[i] === target[i]) cls += (mode === "weasel" && m.locked[i]) ? " locked" : " hit";
+      html += `<span class="${cls}">${disp}</span>`;
+    }
+    m.typedEl.innerHTML = html;
+    m.el.classList.toggle("winner", idx === bestMonkey && bestCount > 0);
+  }
+
+  function renderBest() {
+    const L = target.length;
+    let html = "";
+    const ref = bestStr || target;
+    for (let i = 0; i < L; i++) {
+      const tch = target[i];
+      const got = ref[i];
+      const hit = got === tch;
+      const isSpace = tch === " ";
+      let cls = "ch" + (isSpace ? " space" : "");
+      if (hit) cls += (mode === "weasel") ? " locked" : " hit";
+      const disp = isSpace ? "&nbsp;" : (hit ? tch : (got || "_"));
+      html += `<span class="${cls}">${disp}</span>`;
+    }
+    bestGlyphs.innerHTML = html;
+    bestWho.textContent = bestMonkey >= 0 ? `— monkey #${bestMonkey + 1}` : "";
+  }
+
+  // ---- odds / time-scale ----------------------------------------------------
+  const UNIVERSE_SECONDS = 4.35e17; // ~13.8 billion years
+  function fmtBig(x) {
+    if (x < 1e6) return Math.round(x).toLocaleString();
+    const exp = Math.floor(Math.log10(x));
+    const mant = (x / Math.pow(10, exp)).toFixed(2);
+    return `${mant} × 10^${exp}`;
+  }
+  function fmtDuration(sec) {
+    if (sec < 60) return sec.toFixed(1) + " seconds";
+    if (sec < 3600) return (sec / 60).toFixed(1) + " minutes";
+    if (sec < 86400) return (sec / 3600).toFixed(1) + " hours";
+    if (sec < 3.15e7) return (sec / 86400).toFixed(1) + " days";
+    const years = sec / 3.15e7;
+    if (years < 1e6) return fmtBig(years) + " years";
+    const universes = sec / UNIVERSE_SECONDS;
+    return `${fmtBig(years)} years — about <span class="universe">${fmtBig(universes)}× the age of the universe</span>`;
+  }
+  function renderOdds() {
+    const L = target.length, C = CHARSET.length;
+    const combos = Math.pow(C, L);
+    const rate = currentRate();
+    if (mode === "weasel") {
+      oddsEl.innerHTML = `Cumulative selection sidesteps the odds entirely: instead of one lottery with
+        <span class="num">${C}^${L}</span> tickets, it runs ${L} tiny ${C}-way lotteries that each get
+        locked in. Expect success in seconds — that's the point of the contrast.`;
+      return;
+    }
+    const expSeconds = rate > 0 ? combos / rate : Infinity;
+    oddsEl.innerHTML =
+      `Each full attempt is 1 of <span class="num">${C}<sup>${L}</sup> = ${fmtBig(combos)}</span> possible strings ` +
+      `(${C} symbols, ${L} characters). At the current <span class="num">${fmtBig(rate)}</span> keystrokes/sec, ` +
+      `a random match would take on average <b>${rate > 0 ? fmtDuration(expSeconds) : "—"}</b>.`;
+  }
+  function currentRate() {
+    return SPEED_KPS[+speedRange.value] * monkeys.length;
+  }
+
+  // ---- main loop ------------------------------------------------------------
+  function frame(now) {
+    if (!running) return;
+    if (!lastT) lastT = now;
+    const dt = (now - lastT) / 1000;
+    lastT = now;
+
+    // attempts (full re-rolls) per monkey this frame
+    const perMonkey = SPEED_KPS[+speedRange.value] * dt;
+    accum += perMonkey;
+    let steps = Math.floor(accum);
+    accum -= steps;
+    steps = Math.min(steps, 2000); // safety cap per frame
+
+    if (steps > 0) {
+      for (let s = 0; s < steps; s++) {
+        for (let mi = 0; mi < monkeys.length; mi++) {
+          const m = monkeys[mi];
+          if (mode === "weasel" && m.best === target.length) continue;
+          totalKeys += tickMonkey(m);
+          const c = countMatch(m.buf);
+          m.best = c;
+          if (c > bestCount) {
+            bestCount = c; bestStr = m.buf.join(""); bestMonkey = mi;
+          }
+          if (c === target.length) { solved = true; bestStr = m.buf.join(""); bestMonkey = mi; }
+        }
+        if (solved) break;
+      }
+    }
+
+    // render (once per frame, not per step)
+    monkeys.forEach(renderMonkey);
+    renderBest();
+    updateStats();
+
+    if (solved) { win(); return; }
+    rafId = requestAnimationFrame(frame);
+  }
+
+  function updateStats() {
+    const elapsed = (performance.now() - startT) / 1000;
+    stKeys.textContent = totalKeys.toLocaleString();
+    stTime.innerHTML = elapsed.toFixed(1) + "<small>s</small>";
+    const rate = elapsed > 0 ? totalKeys / elapsed : 0;
+    stRate.innerHTML = fmtBig(rate) + "<small>/s</small>";
+    const pct = (bestCount / target.length) * 100;
+    stBest.innerHTML = pct.toFixed(0) + "<small>%</small>";
+    progFill.style.width = pct + "%";
+  }
+
+  function win() {
+    running = false;
+    const elapsed = (performance.now() - startT) / 1000;
+    banner.classList.add("show");
+    banner.innerHTML = `🎉 <b>Match found!</b> Monkey #${bestMonkey + 1} produced the full passage in
+      ${elapsed.toFixed(1)}s and ${totalKeys.toLocaleString()} keystrokes` +
+      (mode === "chance" ? " — astonishingly lucky, or a very short phrase!" : " via cumulative selection.");
+    startBtn.textContent = "▶ Start";
+    startBtn.classList.remove("paused");
+    renderBest();
+  }
+
+  // ---- controls -------------------------------------------------------------
+  function start() {
+    if (solved) reset();
+    running = true;
+    startBtn.textContent = "⏸ Pause";
+    startBtn.classList.add("paused");
+    if (!startT) startT = performance.now();
+    lastT = 0;
+    rafId = requestAnimationFrame(frame);
+  }
+  function pause() {
+    running = false;
+    cancelAnimationFrame(rafId);
+    startBtn.textContent = "▶ Start";
+    startBtn.classList.remove("paused");
+  }
+  function reset() {
+    pause();
+    totalKeys = 0; bestCount = 0; bestStr = ""; bestMonkey = -1; solved = false;
+    startT = 0; lastT = 0; accum = 0;
+    banner.classList.remove("show");
+    buildMonkeys();
+    monkeys.forEach(renderMonkey);
+    renderBest();
+    updateStats();
+    renderOdds();
+  }
+
+  startBtn.addEventListener("click", () => running ? pause() : start());
+  resetBtn.addEventListener("click", reset);
+
+  phraseSel.addEventListener("change", () => { target = PHRASES[+phraseSel.value]; reset(); });
+  monkeyRange.addEventListener("input", () => { monkeyVal.textContent = monkeyRange.value; reset(); });
+  speedRange.addEventListener("input", () => {
+    speedVal.textContent = SPEED_LABELS[+speedRange.value];
+    renderOdds();
+  });
+  modeBtns.forEach((b) => b.addEventListener("click", () => {
+    modeBtns.forEach((x) => x.classList.remove("active"));
+    b.classList.add("active");
+    mode = b.dataset.mode;
+    modeHint.textContent = HINTS[mode];
+    reset();
+  }));
+
+  // ---- init -----------------------------------------------------------------
+  modeHint.textContent = HINTS[mode];
+  speedVal.textContent = SPEED_LABELS[+speedRange.value];
+  monkeyVal.textContent = monkeyRange.value;
+  reset();
+})();
+</script>
+</body>
+</html>
